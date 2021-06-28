@@ -40,14 +40,30 @@ void loop() {
   }
 }
 
+// phi: azimuth in horizontaler ebene (90° mittig); theta: vertikaler winkel, (0° nach unten, 180° nach oben)
+enum Message {
+    HEAD_PHI = 1,
+    WING_LEFT_THETA = 2,
+    WING_RIGHT_THETA = 3,
+    EYE_LEFT = 20,
+    EYE_RIGHT = 21,
+    FOG = 22,
+    // ...
+};
+
 void listen_for_message(int index) {
     if (!surfo[index].attached()) {
       action = Action::IDLE;
       return;
     }
     int result = Serial.readBytes(&message_head, 1);
-    Serial.print("RESULT ");
+    Serial.print("MESSAGE_HEAD ");
     Serial.println(result);
+}
+
+// need to adjust this if you use a different Servo library!
+int servo_state_from(int message_body) {
+    return (int)(((float)message_body / 1024.) * 180.);
 }
 
 void execute(int index) {
@@ -55,7 +71,7 @@ void execute(int index) {
   switch (action) {
     case Action::SET_SERVO:
       current_state = surfo[index].read();
-      new_state = (int)(((float)message_body / 1024.) * 180.);
+      new_state = servo_state_from(message_body);
       if (current_state != new_state) {
         Serial.print("POS ");
         Serial.print(current_state);
