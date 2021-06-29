@@ -1,6 +1,6 @@
 #include <ESP32Servo.h>
 
-#define SERIAL_PORT 115200
+#define SERIAL_BAUD 115200
 
 #define N_SERVO 1
 Servo surfo[N_SERVO];
@@ -8,15 +8,23 @@ int surfo_pin[N_SERVO] = {
     18
 };
 
-char message_head;
+#define N_RADAR 5
+
+int HEAD_DIRECTION[N_RADAR] = { //
+    0,
+    45,
+    90,
+    135,
+    180,
+}
+
+char message_target;
 short message_body;
 
 enum Action {
   IDLE, SET_SERVO
 };
 Action action = Action::IDLE;
-
-// update frequency - 20Hz - guess I need to adjust the attach() parameters
 
 void setup() {
   ESP32PWM::allocateTimer(0);
@@ -29,36 +37,43 @@ void setup() {
     surfo[s].attach(surfo_pin[s], 500, 2400); // pin number, min, max microsecond settings for PWM
   }
 
-  Serial.begin(SERIAL_PORT);
+  Serial.begin(SERIAL_BAUD);
   Serial.println("PapaGuy is alive.");
 }
 
 void loop() {
   for(int s=0; s < N_SERVO; s++) {
+    // radar
     listen_for_message(s);
     execute(s);
   }
 }
 
+#define HEAD_SERVO 1
 // phi: azimuth in horizontaler ebene (90° mittig); theta: vertikaler winkel, (0° nach unten, 180° nach oben)
 enum Message {
-    HEAD_PHI = 1,
+    HEAD_PHI = HEAD_SERVO,
     WING_LEFT_THETA = 2,
     WING_RIGHT_THETA = 3,
-    EYE_LEFT = 20,
-    EYE_RIGHT = 21,
-    FOG = 22,
-    // ...
+    BEAK = 4,
+    ENVELOPE = 17
+    // EYES / FOG / ..?
+    // KILL = 124 ?
+    // PANIC = 125 ? 
 };
+// for testing, just control servo 1 witih the ENVELOPE information. will be an array later.
+#define ENVELOPE 1
 
 void listen_for_message(int index) {
-    if (!surfo[index].attached()) {
+    if (!surfo[index].attached() || Serial.available() == 0) {
       action = Action::IDLE;
       return;
     }
-    int result = Serial.readBytes(&message_head, 1);
-    Serial.print("MESSAGE_HEAD ");
-    Serial.println(result);
+    int target = Serial.readBytes(&message_target, 1);
+    int body = Serial.readBytes(&message_body, 2);
+    Serial.print("MESSAGE: ");
+    Serial.print(target);
+    Serial.println(body);
 }
 
 // need to adjust this if you use a different Servo library!
