@@ -6,12 +6,12 @@
 
 #define N_SERVO 1
 Servo surfo[N_SERVO];
-int SURFO_PIN[N_SERVO] = { 18 }; 
+int SURFO_PIN[N_SERVO] = { 18 };
 
 #define N_RADAR 5
 #define NO_PIN 0
 #define ENABLE_RADAR_EMULATE true // if that is true, the NO_PINs will get random values
-int RADAR_PIN[N_RADAR] = { NO_PIN, NO_PIN, NO_PIN, NO_PIN, NO_PIN }; 
+int RADAR_PIN[N_RADAR] = { NO_PIN, NO_PIN, NO_PIN, NO_PIN, NO_PIN };
 int metric_points[N_RADAR] = {0};
 bool lets_emulate = false;
 
@@ -54,13 +54,13 @@ void setup() {
 
   for (int r=0; r < N_RADAR; r++) {
     if (RADAR_PIN[r] != NO_PIN) {
-      pinMode(RADAR_PIN[r], INPUT);      
+      pinMode(RADAR_PIN[r], INPUT);
     }
   }
-  
+
   Serial.begin(SERIAL_BAUD);
   Serial.println("PapaGuy is listening.");
-  
+
   reset_direction_metrics();
 }
 
@@ -82,9 +82,9 @@ void loop() {
       reset_direction_metrics();
     }
   }
-  
+
   if (listen_for_message()) {
-    execute();      
+    execute();
   }
 
   step++;
@@ -127,7 +127,7 @@ void execute() {
   if (deactivated) {
     return;
   }
-  
+
   switch (message_action) {
     case Message::HEAD:
     case Message::WING_LEFT:
@@ -141,11 +141,12 @@ void execute() {
       execute_set_switch(message_action, message_body > 0);
 
     case Message::ENVELOPE:
+      // FOR DEBUG (e.g. if you have only one servo...)
+      // execute_set_servo(1, message_body);
+
       execute_set_servo(Message::BEAK, message_body);
       execute_set_servo(Message::WING_LEFT, message_body);
       execute_set_servo(Message::WING_RIGHT, message_body);
-      // FOR NOW
-      execute_set_servo(1, message_body);
 
       execute_set_switch(Message::EYES, message_body > ENVELOPE_LIGHT_THRESHOLD);
       return;
@@ -164,7 +165,7 @@ void execute() {
 
     case Message::IDLE:
       return;
-      
+
     default:
       Serial.print("UNKNOWN MESSAGE: ");
       Serial.println(message_action);
@@ -209,7 +210,7 @@ void measure_direction_metrics() {
     if (sensor_value > THRESHOLD_absolute_over_threshold) {
       METRIC_absolute_over_threshold[r]++;
     }
-        
+
     last_value[r] = sensor_value;
   }
 }
@@ -254,7 +255,7 @@ bool emulation_was_triggered() {
   if (!lets_emulate) {
     return false;
   }
-  
+
   bool any_point_found = false;
   int r = random(100);
   if (r < N_RADAR) {
