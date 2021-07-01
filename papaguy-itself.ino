@@ -7,9 +7,10 @@ Servo surfo[N_SERVO];
 int SURFO_PIN[N_SERVO] = { 18 };
 
 #define N_RADAR 5
-int RADAR_PIN[N_RADAR] = { 34, 0, 0, 0, 0 };
+#define NO_PIN 0
+#define RADAR_EMULATE true // if that is true, the NO_PINs will get random values
+int RADAR_PIN[N_RADAR] = { 34, NO_PIN, NO_PIN, NO_PIN, NO_PIN };
 int metric_points[N_RADAR] = {0};
-int HEAD_DIRECTION[N_RADAR] = { 20, 55, 90, 125, 160 };
 
 char message_target;
 byte message_body;
@@ -28,8 +29,10 @@ void setup() {
     surfo[s].attach(SURFO_PIN[s], 500, 2400); // pin number, min, max microsecond settings for PWM
   }
 
-  for(int r=0; r < N_RADAR; r++) {
-    pinMode(RADAR_PIN[r], INPUT);
+  for (int r=0; r < N_RADAR; r++) {
+    if (RADAR_PIN[r] != NO_PIN) {
+      pinMode(RADAR_PIN[r], INPUT);      
+    }
   }
   
   Serial.begin(SERIAL_BAUD);
@@ -43,12 +46,14 @@ int step = 0;
 void loop() {
 
   if (step % CHECK_RADAR_EVERY == 0) {
-    if (radar_detection(&current_direction)) {
-      Serial.print("RADAR_");
+    measure_direction_metrics(); // probably don't skip steps, but accumulate
+
+    if (calculate_metric_points()) {
+      Serial.print("RADAR!");
       for (int r=0; r < N_RADAR; r++) {
         Serial.print(metric_points[r]);
       }
-      Serial.println(";");
+      Serial.println("");
       reset_direction_metrics();
     }
   }
@@ -125,23 +130,13 @@ int THRESHOLD_absolute_over_threshold_times = 10;
 int strongest_radar;
 int second_radar;
 
-bool radar_detection(int *direction) {
-  measure_direction_metrics();
-  
-  int strongest_radar = NOTHING_DETECTED;
-  int second_strongest_radar = NOTHING_DETECTED;
-  find_strongest_radars();
-  
-  if (strongest_radar != NOTHING_DETECTED) {
-    //*direction = interpolate_direction_from_radars();
-    return true;    
-  }
-  return false;
-};
-
 void measure_direction_metrics() {
-  for(int r=0; r < N_RADAR; r++) {
-    int sensor_value = analogRead(RADAR_PIN[r]);
+  for (int r=0; r < N_RADAR; r++) {
+    int pin = RADAR_PIN[r];
+    if (pin == NO_PIN) {
+      continue;
+    }
+    int sensor_value = analogRead(pin);
     int gradient = sensor_value - last_value[r];
     unsigned int abs_gradient = abs(gradient);
 
@@ -154,43 +149,46 @@ void measure_direction_metrics() {
   }
 }
 
-void find_strongest_radars() {
+bool calculate_metric_points() {
+  bool any_point_found = false;
   for (int r=0; r < N_RADAR; r++) {
+    if (RADAR_PIN[r] == NO_PIN && RADAR_EMULATE) {
+      any_point_found = put_emulation_garbage_into_metric_point(r);
+      continue;
+    }
+    
     // in case of these being shitty, try different one(s)
     int metric = METRIC_integrated_absolute_gradient[r];
     int threshold = THRESHOLD_integrated_absolute_gradient;
 
     if (metric > threshold) {
       metric_points[r]++;
+      any_point_found = true;
     }
   }
-
-  for (int r=0; r < N_RADAR; r++) {
-    if (metric_points[r] > metric_points[strongest_radar]) {
-      second_radar = strongest_radar;
-      strongest_radar = r;
-    }
-  }
+  return any_point_found;
 }
-// radar data interpretation not done here, done by server
-/*
-int interpolate_direction_from_radars() {
-  int strongest_direction = HEAD_DIRECTION[strongest_radar];
-  if (second_radar == NOTHING_DETECTED) {
-    return strongest_direction;
-  }
-  int second_direction = HEAD_DIRECTION[second_radar];
-  int topmost_points = metric_points[strongest_radar];
-  int secondmost_points = metric_points[second_radar];
-  float weight = (float)(topmost_points) / (float)(topmost_points + secondmost_points);
 
-  return (int)(weight * strongest_direction + (1.0 - weight) * second_direction);
-}
-*/
 void reset_direction_metrics() {
   for (int r=0; r < N_RADAR; r++) {
     METRIC_integrated_absolute_gradient[r] = 0;
     METRIC_absolute_over_threshold[r] = 0;
     metric_points[r] = 0;
   }
+}
+
+bool put_emulation_garbage_into_metric_point(int r) {
+  bool any_point_found = false;
+  int rnd_int = random(100);
+  if (rnd_int == r) {
+    metric_points[r] += random(1, 3);
+    if (r > 1) {
+      metric_points[r - 1] += random(0, 3);
+    }
+    if (r < N_RADAR - 1) {
+      metric_points[r + 1] += random(0, 3);
+    }
+    any_point_found = true;
+  }
+  return any_point_found;
 }
