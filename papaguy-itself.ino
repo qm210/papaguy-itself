@@ -15,6 +15,8 @@ int RADAR_PIN[N_RADAR] = { NO_PIN, NO_PIN, NO_PIN, NO_PIN, NO_PIN };
 int metric_points[N_RADAR] = {0};
 bool lets_emulate = false;
 
+// TODO: define a map for the EYES / FOG pins, or see whether they can be derived from the Message enum
+
 ///////////////////////////////////////////
 
 // head: azimuth in horizontaler ebene (90° mittig); wings: vertikaler winkel, (0° nach unten, 90° horizontal)
@@ -25,8 +27,8 @@ enum Message {
   WING_RIGHT = 3,
   BEAK = 4,
   ENVELOPE = 17,
-  EYES = 20, // not implemented yet
-  FOG = 21, // not implemented yet
+  EYES = 20, // two eyes?
+  FOG = 23,
   IS_ALIVE = 63,
   EMULATE_RADARS = 101,
   DEACTIVATE = 125,
@@ -113,6 +115,8 @@ int servo_state_from(int message_body) {
     return (int)(((float)message_body / 1024.) * 180.);
 }
 
+#define ENVELOPE_LIGHT_THRESHOLD (0.6 * 1023)
+
 void execute() {
   if (message_action == Message::REACTIVATE) {
     deactivated = false;
@@ -132,12 +136,18 @@ void execute() {
       execute_set_servo(message_action, message_body);
       return;
 
+    case Message::EYES:
+    case Message::FOG:
+      execute_set_switch(message_action, message_body > 0);
+
     case Message::ENVELOPE:
       execute_set_servo(Message::BEAK, message_body);
       execute_set_servo(Message::WING_LEFT, message_body);
       execute_set_servo(Message::WING_RIGHT, message_body);
       // FOR NOW
       execute_set_servo(1, message_body);
+
+      execute_set_switch(Message::EYES, message_body > ENVELOPE_LIGHT_THRESHOLD);
       return;
 
     case Message::EMULATE_RADARS:
@@ -170,12 +180,12 @@ void execute_set_servo(int target, int payload) {
   }
   int old_value = surfo[index].read();
   if (old_value != value) {
-    Serial.print("POS ");
-    Serial.print(old_value);
-    Serial.print(" -> ");
-    Serial.println(value);
     surfo[index].write(value);
   }
+}
+
+void execute_set_switch(int target, bool payload) {
+  // TODO: SET PIN ACCORDINGLY (might need map)
 }
 
 int last_value[N_RADAR] = {0};
