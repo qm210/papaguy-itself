@@ -58,7 +58,7 @@ void setup() {
   
   Serial.begin(SERIAL_BAUD);
   Serial.println("PapaGuy is listening.");
-
+  
   reset_direction_metrics();
 }
 
@@ -129,13 +129,15 @@ void execute() {
     case Message::WING_LEFT:
     case Message::WING_RIGHT:
     case Message::BEAK:
-      execute_set_servo(message_action, servo_state_from(message_body));
+      execute_set_servo(message_action, message_body);
       return;
 
     case Message::ENVELOPE:
-      execute_set_servo(Message::BEAK, servo_state_from(message_body));
-      execute_set_servo(Message::WING_LEFT, servo_state_from(message_body));
-      execute_set_servo(Message::WING_RIGHT, servo_state_from(message_body));
+      execute_set_servo(Message::BEAK, message_body);
+      execute_set_servo(Message::WING_LEFT, message_body);
+      execute_set_servo(Message::WING_RIGHT, message_body);
+      // FOR NOW
+      execute_set_servo(1, message_body);
       return;
 
     case Message::EMULATE_RADARS:
@@ -160,7 +162,9 @@ void execute() {
   };
 }
 
-void execute_set_servo(int index, int value) {
+void execute_set_servo(int target, int payload) {
+  int index = target - 1;
+  int value = servo_state_from(payload);
   if (index >= N_SERVO || !surfo[index].attached()) {
     return;
   }
