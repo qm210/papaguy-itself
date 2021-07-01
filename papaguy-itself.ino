@@ -14,7 +14,11 @@ int RADAR_PIN[N_RADAR] = {
 };
 
 int HEAD_DIRECTION[N_RADAR] = {
+  20,
+  55,
   90,
+  125,
+  160
 };
 
 char message_target;
@@ -41,26 +45,20 @@ void setup() {
   }
   
   Serial.begin(SERIAL_BAUD);
-  ensure_serial_connection();
+  Serial.println("PapaGuy is listening.");  
 }
 
-void ensure_serial_connection() {
-  if (Serial) {
-    return;
-  }
-  Serial.begin(SERIAL_BAUD);
-  while (!Serial);
-  Serial.println("PapaGuy is alive.");  
-}
+int current_direction = -1; // assign radar_detection in 0 .. 180 after recognition
 
-int current_direction = -1;
-
+#define CHECK_RADAR_EVERY 100
+int step = 0;
 void loop() {
-  ensure_serial_connection();
-  
-  if (radar_detection(&current_direction)) {
-    Serial.print("Detected something... ");
-    Serial.println(current_direction);
+
+  if (step % CHECK_RADAR_EVERY == 0) {
+    if (radar_detection(&current_direction)) {
+      Serial.print("Detected something... ");
+      Serial.println(current_direction);
+    }
   }
   
   for(int s=0; s < N_SERVO; s++) {
@@ -68,7 +66,7 @@ void loop() {
     execute(s);
   }
 
-  delay(20);
+  step++;
 }
 
 #define HEAD_SERVO 1
@@ -124,21 +122,84 @@ void execute(int index) {
   };
 }
 
+int last_value[N_RADAR] = {0};
+int METRIC_integrated_absolute_gradient[N_RADAR] = {0};
+int THRESHOLD_integrated_absolute_gradient = 1000;
+int METRIC_absolute_over_threshold[N_RADAR] = {0};
+int THRESHOLD_absolute_over_threshold = 1000;
+int THRESHOLD_absolute_over_threshold_times = 10;
+int metric_points[N_RADAR] = {0};
+
+#define NOTHING_DETECTED -1
+int strongest_radar;
+int second_radar;
+
 bool radar_detection(int *direction) {
-  /*
-  for(int r=0; r < N_RADAR; r++) {
-    int sensor_value = digitalRead(RADAR_PIN[r]);
-    Serial.print("RADAR ");
-    Serial.print(r);
-    Serial.print(": ");
-    Serial.println(sensor_value);
-  }
-  */
+  measure_direction_metrics();
   
-  int fake_value = random(1000);
-  if(fake_value < 5) {
-    *direction = fake_value;
-    return true;
+  int strongest_radar = NOTHING_DETECTED;
+  int second_strongest_radar = NOTHING_DETECTED;
+  find_strongest_radars();
+  
+  if (strongest_radar != NOTHING_DETECTED) {
+    *direction = interpolate_direction_from_radars();
+    reset_direction_metrics();
+    return true;    
   }
   return false;
 };
+
+void measure_direction_metrics() {
+  for(int r=0; r < N_RADAR; r++) {
+    int sensor_value = analogRead(RADAR_PIN[r]);
+    int gradient = sensor_value - last_value[r];
+    unsigned int abs_gradient = abs(gradient);
+
+    METRIC_integrated_absolute_gradient[r] += abs_gradient;
+    if (sensor_value > THRESHOLD_absolute_over_threshold) {
+      METRIC_absolute_over_threshold[r]++;
+    }
+        
+    last_value[r] = sensor_value;
+  }
+}
+
+void find_strongest_radars() {
+  for (int r=0; r < N_RADAR; r++) {
+    // in case of these being shitty, try different one(s)
+    int metric = METRIC_integrated_absolute_gradient[r];
+    int threshold = THRESHOLD_integrated_absolute_gradient;
+
+    if (metric > threshold) {
+      metric_points[r]++;
+    }
+  }
+
+  for (int r=0; r < N_RADAR; r++) {
+    if (metric_points[r] > metric_points[strongest_radar]) {
+      second_radar = strongest_radar;
+      strongest_radar = r;
+    }
+  }
+}
+
+int interpolate_direction_from_radars() {
+  int strongest_direction = HEAD_DIRECTION[strongest_radar];
+  if (second_radar == NOTHING_DETECTED) {
+    return strongest_direction;
+  }
+  int second_direction = HEAD_DIRECTION[second_radar];
+  int topmost_points = metric_points[strongest_radar];
+  int secondmost_points = metric_points[second_radar];
+  float weight = (float)(topmost_points) / (float)(topmost_points + secondmost_points);
+
+  return (int)(weight * strongest_direction + (1.0 - weight) * second_direction);
+}
+
+void reset_direction_metrics() {
+  for (int r=0; r < N_RADAR; r++) {
+    METRIC_integrated_absolute_gradient[r] = 0;
+    METRIC_absolute_over_threshold[r] = 0;
+    metric_points[r] = 0;
+  }
+}
