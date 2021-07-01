@@ -237,7 +237,6 @@ bool emulation_was_triggered() {
   }
   bool any_point_found = false;
   int r = random(100);
-  Serial.println(r);
   if (r < N_RADAR) {
     metric_points[r] += random(1, 10);
     if (r > 1) {
