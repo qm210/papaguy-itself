@@ -4,29 +4,17 @@
 
 #define N_SERVO 1
 Servo surfo[N_SERVO];
-int SURFO_PIN[N_SERVO] = {
-  18
-};
+int SURFO_PIN[N_SERVO] = { 18 };
 
-#define N_RADAR 1
-int RADAR_PIN[N_RADAR] = {
-  34
-};
-
-int HEAD_DIRECTION[N_RADAR] = {
-  20,
-  55,
-  90,
-  125,
-  160
-};
+#define N_RADAR 5
+int RADAR_PIN[N_RADAR] = { 34, 0, 0, 0, 0 };
+int metric_points[N_RADAR] = {0};
+int HEAD_DIRECTION[N_RADAR] = { 20, 55, 90, 125, 160 };
 
 char message_target;
 byte message_body;
 
-enum Action {
-  IDLE, SET_SERVO
-};
+enum Action { IDLE, SET_SERVO };
 Action action = Action::IDLE;
 
 void setup() {
@@ -56,8 +44,12 @@ void loop() {
 
   if (step % CHECK_RADAR_EVERY == 0) {
     if (radar_detection(&current_direction)) {
-      Serial.print("Detected something... ");
-      Serial.println(current_direction);
+      Serial.print("RADAR_");
+      for (int r=0; r < N_RADAR; r++) {
+        Serial.print(metric_points[r]);
+      }
+      Serial.println(";");
+      reset_direction_metrics();
     }
   }
   
@@ -128,7 +120,6 @@ int THRESHOLD_integrated_absolute_gradient = 1000;
 int METRIC_absolute_over_threshold[N_RADAR] = {0};
 int THRESHOLD_absolute_over_threshold = 1000;
 int THRESHOLD_absolute_over_threshold_times = 10;
-int metric_points[N_RADAR] = {0};
 
 #define NOTHING_DETECTED -1
 int strongest_radar;
@@ -142,8 +133,7 @@ bool radar_detection(int *direction) {
   find_strongest_radars();
   
   if (strongest_radar != NOTHING_DETECTED) {
-    *direction = interpolate_direction_from_radars();
-    reset_direction_metrics();
+    //*direction = interpolate_direction_from_radars();
     return true;    
   }
   return false;
@@ -182,7 +172,8 @@ void find_strongest_radars() {
     }
   }
 }
-
+// radar data interpretation not done here, done by server
+/*
 int interpolate_direction_from_radars() {
   int strongest_direction = HEAD_DIRECTION[strongest_radar];
   if (second_radar == NOTHING_DETECTED) {
@@ -195,7 +186,7 @@ int interpolate_direction_from_radars() {
 
   return (int)(weight * strongest_direction + (1.0 - weight) * second_direction);
 }
-
+*/
 void reset_direction_metrics() {
   for (int r=0; r < N_RADAR; r++) {
     METRIC_integrated_absolute_gradient[r] = 0;
