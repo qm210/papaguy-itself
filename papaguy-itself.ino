@@ -127,10 +127,6 @@ int METRIC_absolute_over_threshold[N_RADAR] = {0};
 int THRESHOLD_absolute_over_threshold = 1000;
 int THRESHOLD_absolute_over_threshold_times = 10;
 
-#define NOTHING_DETECTED -1
-int strongest_radar;
-int second_radar;
-
 void measure_direction_metrics() {
   for (int r=0; r < N_RADAR; r++) {
     int pin = RADAR_PIN[r];
@@ -154,7 +150,9 @@ bool calculate_metric_points() {
   bool any_point_found = false;
   for (int r=0; r < N_RADAR; r++) {
     if (RADAR_PIN[r] == NO_PIN && RADAR_EMULATE) {
-      any_point_found = put_emulation_garbage_into_metric_point(r);
+      if (put_emulation_garbage_into_metric_point(r)) {
+        any_point_found = true;
+      }
       continue;
     }
     
@@ -180,14 +178,14 @@ void reset_direction_metrics() {
 
 bool put_emulation_garbage_into_metric_point(int r) {
   bool any_point_found = false;
-  int rnd_int = random(1000);
+  int rnd_int = random(10000);
   if (rnd_int == r) {
-    metric_points[r] += random(1, 3);
+    metric_points[r] += random(1, 10);
     if (r > 1) {
-      metric_points[r - 1] += random(0, 3);
+      metric_points[r - 1] += random(0, 4);
     }
     if (r < N_RADAR - 1) {
-      metric_points[r + 1] += random(0, 3);
+      metric_points[r + 1] += random(0, 4);
     }
     any_point_found = true;
   }
