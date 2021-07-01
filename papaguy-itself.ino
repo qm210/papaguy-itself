@@ -2,21 +2,41 @@
 
 #define SERIAL_BAUD 115200
 
+// SET THESE: /////////////////////////////
+
 #define N_SERVO 1
 Servo surfo[N_SERVO];
-int SURFO_PIN[N_SERVO] = { 18 };
+int SURFO_PIN[N_SERVO] = { 18 }; 
 
 #define N_RADAR 5
 #define NO_PIN 0
-#define RADAR_EMULATE true // if that is true, the NO_PINs will get random values
-int RADAR_PIN[N_RADAR] = { 34, NO_PIN, NO_PIN, NO_PIN, NO_PIN };
+#define ENABLE_RADAR_EMULATE true // if that is true, the NO_PINs will get random values
+int RADAR_PIN[N_RADAR] = { NO_PIN, NO_PIN, NO_PIN, NO_PIN, NO_PIN }; 
 int metric_points[N_RADAR] = {0};
+bool lets_emulate = false;
 
-char message_target;
-byte message_body;
+///////////////////////////////////////////
 
-enum Action { IDLE, SET_SERVO };
-Action action = Action::IDLE;
+// head: azimuth in horizontaler ebene (90° mittig); wings: vertikaler winkel, (0° nach unten, 90° horizontal)
+enum Message {
+  IDLE = 0,
+  HEAD = 1,
+  WING_LEFT = 2,
+  WING_RIGHT = 3,
+  BEAK = 4,
+  ENVELOPE = 17,
+  EYES = 20, // not implemented yet
+  FOG = 21, // not implemented yet
+  EMULATE_RADARS = 101,
+  DEACTIVATE = 125,
+  REACTIVATE = 126,
+  RESET = 127,
+};
+
+unsigned short message_action;
+int message_body;
+char message[3]; // first byte is Message (see enum above), last two bytes are the value information (payload)
+bool deactivated = false;
 
 void setup() {
   ESP32PWM::allocateTimer(0);
@@ -26,7 +46,7 @@ void setup() {
 
   for (int s=0; s < N_SERVO; s++) {
     surfo[s].setPeriodHertz(50);
-    surfo[s].attach(SURFO_PIN[s], 500, 2400); // pin number, min, max microsecond settings for PWM
+    surfo[s].attach(SURFO_PIN[s], 544, 2400); // pin number, min, max microsecond settings for PWM
   }
 
   for (int r=0; r < N_RADAR; r++) {
@@ -36,17 +56,18 @@ void setup() {
   }
   
   Serial.begin(SERIAL_BAUD);
-  Serial.println("PapaGuy is listening.");  
+  Serial.println("PapaGuy is listening.");
+
+  reset_direction_metrics();
 }
 
-int current_direction = -1; // assign radar_detection in 0 .. 180 after recognition
-
-#define CHECK_RADAR_EVERY 100
+#define CHECK_RADAR_EVERY 5 // only to reduce load a little
 int step = 0;
+
 void loop() {
 
   if (step % CHECK_RADAR_EVERY == 0) {
-    measure_direction_metrics(); // probably don't skip steps, but accumulate
+    measure_direction_metrics();
 
     if (calculate_metric_points()) {
       Serial.print("RADAR!");
@@ -59,39 +80,31 @@ void loop() {
     }
   }
   
-  for(int s=0; s < N_SERVO; s++) {
-    listen_for_message(s);
-    execute(s);
+  if (listen_for_message()) {
+    execute();      
   }
 
   step++;
+  if (step > 10000) {
+    step -= 10000;
+  }
 }
 
-#define HEAD_SERVO 1
-// phi: azimuth in horizontaler ebene (90° mittig); theta: vertikaler winkel, (0° nach unten, 180° nach oben)
-enum Message {
-  HEAD_PHI = HEAD_SERVO,
-  WING_LEFT_THETA = 2,
-  WING_RIGHT_THETA = 3,
-  BEAK = 4,
-  ENVELOPE = 17
-  // EYES / FOG / ..?
-  // KILL = 124 ?
-  // PANIC = 125 ? 
-};
-// for testing, just control servo 1 witih the ENVELOPE information. will be an array later.
-#define ENVELOPE 1
+void(* reboot) (void) = 0;
 
-void listen_for_message(int index) {
-    if (!surfo[index].attached() || Serial.available() == 0) {
-      action = Action::IDLE;
-      return;
-    }
-    int target = Serial.readBytes(&message_target, 1);
-    int body = Serial.readBytes(&message_body, 2);
-    Serial.print("MESSAGE: ");
-    Serial.print(target);
-    Serial.println(body);
+bool listen_for_message() {
+  if (Serial.available() == 0) {
+    message_action = Message::IDLE;
+    return false;
+  }
+  Serial.readBytes(message, 3);
+  message_action = message[0];
+  message_body = message[2] | message[1] << 8;
+  Serial.print("MESSAGE: ");
+  Serial.print(message_action);
+  Serial.print(";");
+  Serial.println(message_body);
+  return message_action != Message::IDLE;
 }
 
 // need to adjust this if you use a different Servo library!
@@ -99,30 +112,66 @@ int servo_state_from(int message_body) {
     return (int)(((float)message_body / 1024.) * 180.);
 }
 
-void execute(int index) {
-  int current_state, new_state;
-  switch (action) {
-    case Action::SET_SERVO:
-      current_state = surfo[index].read();
-      new_state = servo_state_from(message_body);
-      if (current_state != new_state) {
-        Serial.print("POS ");
-        Serial.print(current_state);
-        Serial.print(" -> ");
-        Serial.println(new_state);
-        surfo[index].write(new_state);
-      }
+void execute() {
+  if (message_action == Message::REACTIVATE) {
+    deactivated = false;
+  } else if (message_action == Message::RESET) {
+    reboot();
+  }
+
+  if (deactivated) {
+    return;
+  }
+  
+  switch (message_action) {
+    case Message::HEAD:
+    case Message::WING_LEFT:
+    case Message::WING_RIGHT:
+    case Message::BEAK:
+      execute_set_servo(message_action, servo_state_from(message_body));
       return;
 
-    case Action::IDLE:
+    case Message::ENVELOPE:
+      execute_set_servo(Message::BEAK, servo_state_from(message_body));
+      execute_set_servo(Message::WING_LEFT, servo_state_from(message_body));
+      execute_set_servo(Message::WING_RIGHT, servo_state_from(message_body));
+      return;
+
+    case Message::EMULATE_RADARS:
+      lets_emulate = ENABLE_RADAR_EMULATE;
+      return;
+
+    case Message::DEACTIVATE:
+      deactivated = true;
+      return;
+
+    case Message::IDLE:
+      return;
+      
     default:
+      Serial.print("UNKNOWN MESSAGE: ");
+      Serial.println(message_action);
       return;
   };
 }
 
+void execute_set_servo(int index, int value) {
+  if (index >= N_SERVO || !surfo[index].attached()) {
+    return;
+  }
+  int old_value = surfo[index].read();
+  if (old_value != value) {
+    Serial.print("POS ");
+    Serial.print(old_value);
+    Serial.print(" -> ");
+    Serial.println(value);
+    surfo[index].write(value);
+  }
+}
+
 int last_value[N_RADAR] = {0};
 int METRIC_integrated_absolute_gradient[N_RADAR] = {0};
-int THRESHOLD_integrated_absolute_gradient = 1000;
+int THRESHOLD_integrated_absolute_gradient = 2000;
 int METRIC_absolute_over_threshold[N_RADAR] = {0};
 int THRESHOLD_absolute_over_threshold = 1000;
 int THRESHOLD_absolute_over_threshold_times = 10;
@@ -147,18 +196,23 @@ void measure_direction_metrics() {
 }
 
 bool calculate_metric_points() {
+  if (emulation_was_triggered()) {
+    return true;
+  }
+
   bool any_point_found = false;
   for (int r=0; r < N_RADAR; r++) {
-    if (RADAR_PIN[r] == NO_PIN && RADAR_EMULATE) {
-      if (put_emulation_garbage_into_metric_point(r)) {
-        any_point_found = true;
-      }
+    if (RADAR_PIN[r] == NO_PIN) {
       continue;
     }
-    
     // in case of these being shitty, try different one(s)
     int metric = METRIC_integrated_absolute_gradient[r];
     int threshold = THRESHOLD_integrated_absolute_gradient;
+
+    Serial.print("METRIC ");
+    Serial.print(metric);
+    Serial.print("; THRESHOLD ");
+    Serial.println(threshold);
 
     if (metric > threshold) {
       metric_points[r]++;
@@ -173,13 +227,18 @@ void reset_direction_metrics() {
     METRIC_integrated_absolute_gradient[r] = 0;
     METRIC_absolute_over_threshold[r] = 0;
     metric_points[r] = 0;
+    lets_emulate = false;
   }
 }
 
-bool put_emulation_garbage_into_metric_point(int r) {
+bool emulation_was_triggered() {
+  if (!lets_emulate) {
+    return false;
+  }
   bool any_point_found = false;
-  int rnd_int = random(10000);
-  if (rnd_int == r) {
+  int r = random(100);
+  Serial.println(r);
+  if (r < N_RADAR) {
     metric_points[r] += random(1, 10);
     if (r > 1) {
       metric_points[r - 1] += random(0, 4);
