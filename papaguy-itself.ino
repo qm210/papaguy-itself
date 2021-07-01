@@ -52,6 +52,7 @@ void loop() {
       Serial.print("RADAR!");
       for (int r=0; r < N_RADAR; r++) {
         Serial.print(metric_points[r]);
+        Serial.print(";");
       }
       Serial.println("");
       reset_direction_metrics();
@@ -179,7 +180,7 @@ void reset_direction_metrics() {
 
 bool put_emulation_garbage_into_metric_point(int r) {
   bool any_point_found = false;
-  int rnd_int = random(100);
+  int rnd_int = random(1000);
   if (rnd_int == r) {
     metric_points[r] += random(1, 3);
     if (r > 1) {
