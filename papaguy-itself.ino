@@ -27,6 +27,7 @@ enum Message {
   ENVELOPE = 17,
   EYES = 20, // not implemented yet
   FOG = 21, // not implemented yet
+  IS_ALIVE = 63,
   EMULATE_RADARS = 101,
   DEACTIVATE = 125,
   REACTIVATE = 126,
@@ -145,6 +146,10 @@ void execute() {
       deactivated = true;
       return;
 
+    case Message::IS_ALIVE:
+      Serial.println("PapaGuy is listening, yes.");
+      return;
+
     case Message::IDLE:
       return;
       
@@ -235,6 +240,7 @@ bool emulation_was_triggered() {
   if (!lets_emulate) {
     return false;
   }
+  
   bool any_point_found = false;
   int r = random(100);
   if (r < N_RADAR) {
