@@ -1,4 +1,12 @@
-#include <ESP32Servo.h>
+// remove this for arduino
+// #define ESP32
+
+#ifdef ESP32
+  #include <ESP32Servo.h>
+#else
+  #include <Arduino.h>
+  #include <Servo.h>
+#endif
 
 #define SERIAL_BAUD 115200
 
@@ -8,12 +16,14 @@
 Servo surfo[N_SERVO];
 int SURFO_PIN[N_SERVO] = { 18 };
 
-#define N_RADAR 5
+#define N_RADAR 1
 #define NO_PIN 0
 #define ENABLE_RADAR_EMULATE true // if that is true, the NO_PINs will get random values
-int RADAR_PIN[N_RADAR] = { NO_PIN, NO_PIN, NO_PIN, NO_PIN, NO_PIN };
-int metric_points[N_RADAR] = {0};
+int RADAR_PIN[N_RADAR] = { A0 };
+int metric_points[N_RADAR] = { 0 };
 bool lets_emulate = false;
+
+#define RADAR_HISTORY_N 20
 
 // TODO: define a map for the EYES / FOG pins, or see whether they can be derived from the Message enum
 
@@ -41,14 +51,28 @@ int message_body;
 char message[3]; // first byte is Message (see enum above), last two bytes are the value information (payload)
 bool deactivated = false;
 
+bool listen_for_message();
+int servo_state_from(int message_body);
+void execute();
+void execute_set_servo(int target, int payload);
+void execute_set_switch(int target, bool payload);
+void measure_direction_metrics();
+bool calculate_metric_points();
+void reset_direction_metrics();
+bool emulation_was_triggered();
+
 void setup() {
-  ESP32PWM::allocateTimer(0);
-  ESP32PWM::allocateTimer(1);
-  ESP32PWM::allocateTimer(2);
-  ESP32PWM::allocateTimer(3);
+  #ifdef ESP32
+    ESP32PWM::allocateTimer(0);
+    ESP32PWM::allocateTimer(1);
+    ESP32PWM::allocateTimer(2);
+    ESP32PWM::allocateTimer(3);
+  #endif
 
   for (int s=0; s < N_SERVO; s++) {
-    surfo[s].setPeriodHertz(50);
+    #ifdef ESP32
+        surfo[s].setPeriodHertz(50);
+    #endif
     surfo[s].attach(SURFO_PIN[s], 544, 2400); // pin number, min, max microsecond settings for PWM
   }
 
@@ -62,35 +86,33 @@ void setup() {
   Serial.println("PapaGuy is listening.");
 
   reset_direction_metrics();
+
+  pinMode(LED_BUILTIN, OUTPUT);
 }
 
-#define CHECK_RADAR_EVERY 5 // only to reduce load a little
-int step = 0;
+int step = -1;
 
 void loop() {
+    step++;
+    if (step > 10000) {
+        step -= 10000;
+    }
 
-  if (step % CHECK_RADAR_EVERY == 0) {
     measure_direction_metrics();
 
-    if (calculate_metric_points()) {
-      Serial.print("RADAR!");
-      for (int r=0; r < N_RADAR; r++) {
-        Serial.print(metric_points[r]);
-        Serial.print(";");
-      }
-      Serial.println("");
-      reset_direction_metrics();
+    if (step % RADAR_HISTORY_N == 0 && calculate_metric_points()) {
+        Serial.print("RADAR!");
+        for (int r=0; r < N_RADAR; r++) {
+            Serial.print(metric_points[r]);
+            Serial.print(";");
+        }
+        Serial.println("");
+        reset_direction_metrics();
     }
-  }
 
-  if (listen_for_message()) {
-    execute();
-  }
-
-  step++;
-  if (step > 10000) {
-    step -= 10000;
-  }
+    if (listen_for_message()) {
+        execute();
+    }
 }
 
 void(* reboot) (void) = 0;
@@ -189,63 +211,92 @@ void execute_set_switch(int target, bool payload) {
   // TODO: SET PIN ACCORDINGLY (might need map)
 }
 
-int last_value[N_RADAR] = {0};
-int METRIC_integrated_absolute_gradient[N_RADAR] = {0};
-int THRESHOLD_integrated_absolute_gradient = 2000;
-int METRIC_absolute_over_threshold[N_RADAR] = {0};
-int THRESHOLD_absolute_over_threshold = 1000;
-int THRESHOLD_absolute_over_threshold_times = 10;
+int _radar_history[N_RADAR * RADAR_HISTORY_N] = {0};
+#define radar_history(radar, step) _radar_history[radar * RADAR_HISTORY_N + step]
+float radar_average[N_RADAR] = {0};
+int radar_average_n[N_RADAR] = {0};
+long duration_of_signal[N_RADAR] = {0};
+bool currently_registering_something[N_RADAR] = {false};
+#define IGNORE_DEVIATION_FROM_AVERAGE 40
+#define MAX_GRADIENT_AT_POSSIBLE_END_OF_SIGNAL 1
 
 void measure_direction_metrics() {
-  for (int r=0; r < N_RADAR; r++) {
+  for (int r = 0; r < N_RADAR; r++) {
     int pin = RADAR_PIN[r];
     if (pin == NO_PIN) {
-      continue;
+        continue;
     }
-    int sensor_value = analogRead(pin);
-    int gradient = sensor_value - last_value[r];
+
+    for (int h = 1; h < RADAR_HISTORY_N; h++) {
+        radar_history(r, h) = radar_history(r, h - 1);
+    }
+    int new_value = analogRead(pin);
+    radar_history(r, 0) = new_value;
+
+    // somehow deal with overflowing of the index, I assume one could do this
+    if (radar_average_n[r] == 30000) {
+        radar_average_n[r] = 1000;
+    } else {
+        radar_average_n[r]++;
+    }
+    radar_average[r] = (radar_average_n[r] * radar_average[r] + new_value) / (radar_average_n[r] + 1);
+
+    int gradient = new_value - radar_history(r, 10);
     unsigned int abs_gradient = abs(gradient);
 
-    METRIC_integrated_absolute_gradient[r] += abs_gradient;
-    if (sensor_value > THRESHOLD_absolute_over_threshold) {
-      METRIC_absolute_over_threshold[r]++;
+    float deviation = new_value - radar_average[r];
+    if (deviation > IGNORE_DEVIATION_FROM_AVERAGE) {
+        if (currently_registering_something[r]) {
+            duration_of_signal[r]++;
+        } else {
+            currently_registering_something[r] = true;
+            duration_of_signal[r] = 1;
+        }
+    } else if (currently_registering_something[r]) {
+        if (abs_gradient < MAX_GRADIENT_AT_POSSIBLE_END_OF_SIGNAL) {
+            currently_registering_something[r] = false;
+        }
     }
 
-    last_value[r] = sensor_value;
+    if (r != 0) {
+        continue;
+    }
+
+    if (deviation > IGNORE_DEVIATION_FROM_AVERAGE) {
+        digitalWrite(LED_BUILTIN, HIGH);
+        Serial.print(radar_average[r]);
+        Serial.print("  ");
+        Serial.print(radar_average_n[r]);
+        Serial.print("  ");
+        Serial.println(deviation);
+    } else {
+        digitalWrite(LED_BUILTIN, LOW);
+    }
   }
 }
 
 bool calculate_metric_points() {
-  if (emulation_was_triggered()) {
-    return true;
-  }
-
-  bool any_point_found = false;
-  for (int r=0; r < N_RADAR; r++) {
-    if (RADAR_PIN[r] == NO_PIN) {
-      continue;
+    if (emulation_was_triggered()) {
+        return true;
     }
-    // in case of these being shitty, try different one(s)
-    int metric = METRIC_integrated_absolute_gradient[r];
-    int threshold = THRESHOLD_integrated_absolute_gradient;
 
-    Serial.print("METRIC ");
-    Serial.print(metric);
-    Serial.print("; THRESHOLD ");
-    Serial.println(threshold);
-
-    if (metric > threshold) {
-      metric_points[r]++;
-      any_point_found = true;
+    bool any_point_found = false;
+    for (int r = 0; r < N_RADAR; r++) {
+        if (RADAR_PIN[r] == NO_PIN) {
+            continue;
+        }
+        if (!currently_registering_something[r] && duration_of_signal[r] > 0) {
+            metric_points[r] += duration_of_signal[r];
+            duration_of_signal[r] = 0;
+            any_point_found = true;
+        }
     }
-  }
-  return any_point_found;
+    return any_point_found;
 }
 
 void reset_direction_metrics() {
-  for (int r=0; r < N_RADAR; r++) {
-    METRIC_integrated_absolute_gradient[r] = 0;
-    METRIC_absolute_over_threshold[r] = 0;
+  for (int r = 0; r < N_RADAR; r++) {
+    duration_of_signal[r] = 0;
     metric_points[r] = 0;
     lets_emulate = false;
   }
