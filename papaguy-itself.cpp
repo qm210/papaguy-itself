@@ -1,5 +1,6 @@
 // remove this for arduino
 // #define ESP32
+// #define DEBUG
 
 #ifdef ESP32
   #include <ESP32Servo.h>
@@ -32,10 +33,11 @@ bool lets_emulate = false;
 // head: azimuth in horizontaler ebene (90° mittig); wings: vertikaler winkel, (0° nach unten, 90° horizontal)
 enum Message {
   IDLE = 0,
-  HEAD = 1,
-  WING_LEFT = 2,
-  WING_RIGHT = 3,
-  BEAK = 4,
+  BODY_TILT = 1,
+  WINGS = 2,
+  HEAD_TILT = 3,
+  HEAD_ROTATE = 4,
+  BEAK = 5,
   ENVELOPE = 17,
   EYES = 20, // two eyes?
   FOG = 23,
@@ -151,9 +153,10 @@ void execute() {
   }
 
   switch (message_action) {
-    case Message::HEAD:
-    case Message::WING_LEFT:
-    case Message::WING_RIGHT:
+    case Message::BODY_TILT:
+    case Message::WINGS:
+    case Message::HEAD_TILT:
+    case Message::HEAD_ROTATE:
     case Message::BEAK:
       execute_set_servo(message_action, message_body);
       return;
@@ -167,8 +170,7 @@ void execute() {
       // execute_set_servo(1, message_body);
 
       execute_set_servo(Message::BEAK, message_body);
-      execute_set_servo(Message::WING_LEFT, message_body);
-      execute_set_servo(Message::WING_RIGHT, message_body);
+      execute_set_servo(Message::WINGS, message_body);
 
       execute_set_switch(Message::EYES, message_body > ENVELOPE_LIGHT_THRESHOLD);
       return;
@@ -213,7 +215,7 @@ void execute_set_switch(int target, bool payload) {
 
 int _radar_history[N_RADAR * RADAR_HISTORY_N] = {0};
 #define radar_history(radar, step) _radar_history[radar * RADAR_HISTORY_N + step]
-#define oldest_radar_value(radar) radar_history(radar, RADAR_HISTORY_N-1)
+#define oldest_radar_value(radar) _radar_history[radar * RADAR_HISTORY_N + RADAR_HISTORY_N - 1]
 float radar_average[N_RADAR] = {0};
 int radar_average_n[N_RADAR] = {0};
 long duration_of_signal[N_RADAR] = {0};
@@ -242,7 +244,7 @@ void measure_direction_metrics() {
     }
     radar_average[r] = (radar_average_n[r] * radar_average[r] + new_value) / (radar_average_n[r] + 1);
 
-    int gradient = new_value - oldest_radar_value(radar);
+    int gradient = new_value - oldest_radar_value(r);
     unsigned int abs_gradient = abs(gradient);
 
     float deviation = abs(new_value - radar_average[r]);
@@ -264,16 +266,21 @@ void measure_direction_metrics() {
         continue;
     }
 
-    if (deviation > IGNORE_DEVIATION_FROM_AVERAGE) {
-        digitalWrite(LED_BUILTIN, HIGH);
-        Serial.print(radar_average[r]);
-        Serial.print("  ");
+    digitalWrite(LED_BUILTIN, deviation > IGNORE_DEVIATION_FROM_AVERAGE ? HIGH : LOW);
+
+    #ifdef DEBUG
+        Serial.print(new_value);
+        Serial.print(", ");
         Serial.print(gradient);
-        Serial.print("  ");
-        Serial.println(deviation);
-    } else {
-        digitalWrite(LED_BUILTIN, LOW);
-    }
+        Serial.print(", ");
+        Serial.print(deviation);
+        Serial.print(", ");
+        Serial.print(currently_registering_something[r]);
+        Serial.print(", ");
+        Serial.print(duration_of_signal[r]);
+        Serial.print(", ");
+        Serial.println(metric_points[r]);
+    #endif
   }
 }
 
