@@ -1,5 +1,7 @@
-// remove this for arduino
+// comment out for arduino
 // #define ESP32
+
+// comment out to reduce Serial communication
 #define DEBUG_SERVO
 // #define DEBUG_RADAR
 
@@ -12,16 +14,16 @@
 
 #define SERIAL_BAUD 115200
 
-// SET THESE: /////////////////////////////
+// AFTER WIRING, SET THESE: /////////////////////////////
 
 #define N_SERVO 5
 Servo surfo[N_SERVO];
 int SURFO_PIN[N_SERVO] = { 2, 3, 4, 5, 6 };
 
-#define N_RADAR 1
+#define N_RADAR 5
 #define NO_PIN 0
-#define ENABLE_RADAR_EMULATE true // if that is true, the NO_PINs will get random values
-int RADAR_PIN[N_RADAR] = { A0 };
+#define ENABLE_RADAR_EMULATE true // this enables the EMULATE_RADAR message
+int RADAR_PIN[N_RADAR] = { NO_PIN, NO_PIN, A0, NO_PIN, NO_PIN };
 int metric_points[N_RADAR] = { 0 };
 bool lets_emulate = false;
 
@@ -137,31 +139,35 @@ bool listen_for_message() {
   return message_action != Message::IDLE;
 }
 
+inline float constrained_map(int x, int old_lower, int old_upper, int new_lower, int new_upper) {
+    const int result = map(message_body, old_lower, old_upper, new_lower, new_upper);
+    return (float)constrain(result, min(new_lower, new_upper), max(new_lower, new_upper));
+}
+#define ACTUAL_HEAD_TILT_CENTER 450
 // exceeding the Topy limits will probably kill the PapaGuy!!
 int translate_to_servo_position(unsigned short action, int message_body) {
-    int lower_limit, upper_limit;
+    float result;
     switch (action) {
         case Message::BODY_TILT:
-            lower_limit = 500;
-            upper_limit = 280;
+            result = constrained_map(message_body, 0, 1023, 500, 280);
             break;
         case Message::WINGS:
-            lower_limit = 500;
-            upper_limit = 1100;
+            result = constrained_map(message_body, 0, 1023, 500, 1100);
             break;
         case Message::HEAD_TILT:
-            lower_limit = 850;
-            upper_limit = 100;
+            if (message_body < 512) {
+                result = constrained_map(message_body, 0, 511, 850, ACTUAL_HEAD_TILT_CENTER);
+            } else {
+                result = constrained_map(message_body, 512, 1023, ACTUAL_HEAD_TILT_CENTER, 100);
+            }
             break;
         case Message::BEAK:
-            lower_limit = 180;
-            upper_limit = 800;
+            result = constrained_map(message_body, 0, 1023, 180, 800);
             break;
         default:
-            lower_limit = 0;
-            upper_limit = 1023;
+            result = (float)constrain(message_body, 0, 1023);
     }
-    float result = (float)constrain(map(message_body, 0, 1023, lower_limit, upper_limit), min(lower_limit, upper_limit), max(lower_limit, upper_limit));
+
     // now only convert to the units of our Servo library
     return (int)((result / 1023.) * 180.);
 }
