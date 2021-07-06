@@ -213,12 +213,13 @@ void execute_set_switch(int target, bool payload) {
 
 int _radar_history[N_RADAR * RADAR_HISTORY_N] = {0};
 #define radar_history(radar, step) _radar_history[radar * RADAR_HISTORY_N + step]
+#define oldest_radar_value(radar) radar_history(radar, RADAR_HISTORY_N-1)
 float radar_average[N_RADAR] = {0};
 int radar_average_n[N_RADAR] = {0};
 long duration_of_signal[N_RADAR] = {0};
 bool currently_registering_something[N_RADAR] = {false};
-#define IGNORE_DEVIATION_FROM_AVERAGE 40
-#define MAX_GRADIENT_AT_POSSIBLE_END_OF_SIGNAL 1
+#define IGNORE_DEVIATION_FROM_AVERAGE 20
+#define MAX_GRADIENT_AT_POSSIBLE_END_OF_SIGNAL 2
 
 void measure_direction_metrics() {
   for (int r = 0; r < N_RADAR; r++) {
@@ -241,10 +242,10 @@ void measure_direction_metrics() {
     }
     radar_average[r] = (radar_average_n[r] * radar_average[r] + new_value) / (radar_average_n[r] + 1);
 
-    int gradient = new_value - radar_history(r, 10);
+    int gradient = new_value - oldest_radar_value(radar);
     unsigned int abs_gradient = abs(gradient);
 
-    float deviation = new_value - radar_average[r];
+    float deviation = abs(new_value - radar_average[r]);
     if (deviation > IGNORE_DEVIATION_FROM_AVERAGE) {
         if (currently_registering_something[r]) {
             duration_of_signal[r]++;
@@ -258,6 +259,7 @@ void measure_direction_metrics() {
         }
     }
 
+    // below here, there's only debug output for the first radar
     if (r != 0) {
         continue;
     }
@@ -266,7 +268,7 @@ void measure_direction_metrics() {
         digitalWrite(LED_BUILTIN, HIGH);
         Serial.print(radar_average[r]);
         Serial.print("  ");
-        Serial.print(radar_average_n[r]);
+        Serial.print(gradient);
         Serial.print("  ");
         Serial.println(deviation);
     } else {
