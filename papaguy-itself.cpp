@@ -1,6 +1,7 @@
 // remove this for arduino
 // #define ESP32
-// #define DEBUG
+#define DEBUG_SERVO
+// #define DEBUG_RADAR
 
 #ifdef ESP32
   #include <ESP32Servo.h>
@@ -13,9 +14,9 @@
 
 // SET THESE: /////////////////////////////
 
-#define N_SERVO 1
+#define N_SERVO 5
 Servo surfo[N_SERVO];
-int SURFO_PIN[N_SERVO] = { 18 };
+int SURFO_PIN[N_SERVO] = { 2, 3, 4, 5, 6 };
 
 #define N_RADAR 1
 #define NO_PIN 0
@@ -48,13 +49,15 @@ enum Message {
   RESET = 127,
 };
 
+int MESSAGE_FOR_SERVO[N_SERVO] = { Message::BODY_TILT, Message::WINGS, Message::HEAD_TILT, Message::HEAD_ROTATE, Message::BEAK };
+
 unsigned short message_action;
 int message_body;
 char message[3]; // first byte is Message (see enum above), last two bytes are the value information (payload)
 bool deactivated = false;
 
 bool listen_for_message();
-int servo_state_from(int message_body);
+int translate_to_servo_position(unsigned short action, int message_body);
 void execute();
 void execute_set_servo(int target, int payload);
 void execute_set_switch(int target, bool payload);
@@ -134,9 +137,33 @@ bool listen_for_message() {
   return message_action != Message::IDLE;
 }
 
-// need to adjust this if you use a different Servo library!
-int servo_state_from(int message_body) {
-    return (int)(((float)message_body / 1024.) * 180.);
+// exceeding the Topy limits will probably kill the PapaGuy!!
+int translate_to_servo_position(unsigned short action, int message_body) {
+    int lower_limit, upper_limit;
+    switch (action) {
+        case Message::BODY_TILT:
+            lower_limit = 500;
+            upper_limit = 280;
+            break;
+        case Message::WINGS:
+            lower_limit = 500;
+            upper_limit = 1100;
+            break;
+        case Message::HEAD_TILT:
+            lower_limit = 850;
+            upper_limit = 100;
+            break;
+        case Message::BEAK:
+            lower_limit = 180;
+            upper_limit = 800;
+            break;
+        default:
+            lower_limit = 0;
+            upper_limit = 1023;
+    }
+    float result = (float)constrain(map(message_body, 0, 1023, lower_limit, upper_limit), min(lower_limit, upper_limit), max(lower_limit, upper_limit));
+    // now only convert to the units of our Servo library
+    return (int)((result / 1023.) * 180.);
 }
 
 #define ENVELOPE_LIGHT_THRESHOLD (0.6 * 1023)
@@ -197,16 +224,26 @@ void execute() {
   };
 }
 
-void execute_set_servo(int target, int payload) {
-  int index = target - 1;
-  int value = servo_state_from(payload);
+void execute_set_servo(int message, int payload) {
+  int index;
+  for(;index < N_SERVO && MESSAGE_FOR_SERVO[index] == message; index++);
+
   if (index >= N_SERVO || !surfo[index].attached()) {
     return;
   }
+  int value = translate_to_servo_position(message, payload);
   int old_value = surfo[index].read();
   if (old_value != value) {
     surfo[index].write(value);
   }
+
+  #ifdef DEBUG_SERVO
+    for (int s = 0; s < N_SERVO - 1; s++) {
+        Serial.print(surfo[s].read());
+        Serial.print(", ");
+    }
+    Serial.println(surfo[N_SERVO - 1].read());
+  #endif
 }
 
 void execute_set_switch(int target, bool payload) {
@@ -268,7 +305,7 @@ void measure_direction_metrics() {
 
     digitalWrite(LED_BUILTIN, deviation > IGNORE_DEVIATION_FROM_AVERAGE ? HIGH : LOW);
 
-    #ifdef DEBUG
+    #ifdef DEBUG_RADAR
         Serial.print(new_value);
         Serial.print(", ");
         Serial.print(gradient);
