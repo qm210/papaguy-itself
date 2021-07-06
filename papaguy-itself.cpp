@@ -18,7 +18,7 @@
 
 #define N_SERVO 5
 Servo surfo[N_SERVO];
-int SURFO_PIN[N_SERVO] = { 9, 10, 11, 12, 13 };
+int SURFO_PIN[N_SERVO] = { 8, 9, 10, 11, 12 };
 
 #define N_RADAR 5
 #define NO_PIN 0
@@ -29,7 +29,7 @@ bool lets_emulate = false;
 
 #define RADAR_HISTORY_N 20
 
-#define EYE_PIN 14
+#define EYE_PIN 13
 #define FOG_PIN NO_PIN
 
 // TODO: define a map for the EYES / FOG pins, or see whether they can be derived from the Message enum
@@ -54,7 +54,7 @@ enum Message {
   RESET = 127,
 };
 
-int MESSAGE_FOR_SERVO[N_SERVO] = { Message::BODY_TILT, Message::WINGS, Message::HEAD_TILT, Message::HEAD_ROTATE, Message::BEAK };
+int MESSAGE_FOR_SERVO[N_SERVO] = { Message::HEAD_ROTATE, Message::WINGS, Message::BEAK, Message::HEAD_TILT, Message::BODY_TILT };
 
 unsigned short message_action;
 int message_body;
@@ -239,7 +239,7 @@ void execute() {
 
 void execute_set_servo(int message, int payload) {
   int index;
-  for(;index < N_SERVO && MESSAGE_FOR_SERVO[index] == message; index++);
+  for(;index < N_SERVO && MESSAGE_FOR_SERVO[index] != message; index++);
 
   if (index >= N_SERVO || !surfo[index].attached()) {
     return;
