@@ -18,7 +18,7 @@
 
 #define N_SERVO 5
 Servo surfo[N_SERVO];
-int SURFO_PIN[N_SERVO] = { 2, 3, 4, 5, 6 };
+int SURFO_PIN[N_SERVO] = { 9, 10, 11, 12, 13 };
 
 #define N_RADAR 5
 #define NO_PIN 0
@@ -29,11 +29,14 @@ bool lets_emulate = false;
 
 #define RADAR_HISTORY_N 20
 
+#define EYE_PIN 14
+#define FOG_PIN NO_PIN
+
 // TODO: define a map for the EYES / FOG pins, or see whether they can be derived from the Message enum
 
 ///////////////////////////////////////////
 
-// head: azimuth in horizontaler ebene (90° mittig); wings: vertikaler winkel, (0° nach unten, 90° horizontal)
+// the important part hereof is, that it is same as in papaguy-tamer (__init__.py)
 enum Message {
   IDLE = 0,
   BODY_TILT = 1,
@@ -42,7 +45,7 @@ enum Message {
   HEAD_ROTATE = 4,
   BEAK = 5,
   ENVELOPE = 17,
-  EYES = 20, // two eyes?
+  EYES = 20,
   FOG = 23,
   IS_ALIVE = 63,
   EMULATE_RADARS = 101,
@@ -195,8 +198,12 @@ void execute() {
       return;
 
     case Message::EYES:
+      execute_set_switch(EYE_PIN, message_body > 0);
+      return;
+
     case Message::FOG:
-      execute_set_switch(message_action, message_body > 0);
+      execute_set_switch(FOG_PIN, message_body > 0);
+      return;
 
     case Message::ENVELOPE:
       // FOR DEBUG (e.g. if you have only one servo...)
@@ -205,7 +212,7 @@ void execute() {
       execute_set_servo(Message::BEAK, message_body);
       execute_set_servo(Message::WINGS, message_body);
 
-      execute_set_switch(Message::EYES, message_body > ENVELOPE_LIGHT_THRESHOLD);
+      execute_set_switch(EYE_PIN, message_body > ENVELOPE_LIGHT_THRESHOLD);
       return;
 
     case Message::EMULATE_RADARS:
@@ -252,8 +259,11 @@ void execute_set_servo(int message, int payload) {
   #endif
 }
 
-void execute_set_switch(int target, bool payload) {
-  // TODO: SET PIN ACCORDINGLY (might need map)
+void execute_set_switch(int pin, bool payload) {
+  if (pin == NO_PIN) {
+      return;
+  }
+  digitalWrite(pin, payload);
 }
 
 int _radar_history[N_RADAR * RADAR_HISTORY_N] = {0};
@@ -263,7 +273,7 @@ float radar_average[N_RADAR] = {0};
 int radar_average_n[N_RADAR] = {0};
 long duration_of_signal[N_RADAR] = {0};
 bool currently_registering_something[N_RADAR] = {false};
-#define IGNORE_DEVIATION_FROM_AVERAGE 20
+#define IGNORE_DEVIATION_FROM_AVERAGE 500 // with 500, this should very rarely happen
 #define MAX_GRADIENT_AT_POSSIBLE_END_OF_SIGNAL 2
 
 void measure_direction_metrics() {
