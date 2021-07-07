@@ -2,7 +2,7 @@
 // #define ESP32
 
 // comment out to reduce Serial communication
-#define DEBUG_SERVO
+// #define DEBUG_SERVO
 // #define DEBUG_RADAR
 
 #ifdef ESP32
@@ -58,7 +58,7 @@ int MESSAGE_FOR_SERVO[N_SERVO] = { Message::HEAD_ROTATE, Message::WINGS, Message
 
 unsigned short message_action;
 int message_body;
-char message[3]; // first byte is Message (see enum above), last two bytes are the value information (payload)
+unsigned char message[3]; // first byte is Message (see enum above), last two bytes are the value information (payload)
 bool deactivated = false;
 
 bool listen_for_message();
@@ -85,6 +85,12 @@ void setup() {
     #endif
     surfo[s].attach(SURFO_PIN[s], 544, 2400); // pin number, min, max microsecond settings for PWM
   }
+  // initial positions
+  execute_set_servo(Message::HEAD_TILT, 512);
+  execute_set_servo(Message::HEAD_ROTATE, 512);
+  execute_set_servo(Message::BODY_TILT, 0);
+  execute_set_servo(Message::BEAK, 0);
+  execute_set_servo(Message::WINGS, 0);
 
   for (int r=0; r < N_RADAR; r++) {
     if (RADAR_PIN[r] != NO_PIN) {
@@ -134,16 +140,19 @@ bool listen_for_message() {
   }
   Serial.readBytes(message, 3);
   message_action = message[0];
-  message_body = message[2] | message[1] << 8;
-  Serial.print("MESSAGE: ");
-  Serial.print(message_action);
-  Serial.print(";");
-  Serial.println(message_body);
+  // message_body = (message[1] << 8) + message[2]; // nah, its wrong
+  message_body = ((message[1] & 0xff) << 8) | (message[2] & 0xff);
+  if (message_action != 17) { // ignore the ENVELOPE messages, they are annoying
+    Serial.print("MESSAGE: ");
+    Serial.print(message_action);
+    Serial.print(";");
+    Serial.println(message_body);
+  }
   return message_action != Message::IDLE;
 }
 
 inline float constrained_map(int x, int old_lower, int old_upper, int new_lower, int new_upper) {
-    const int result = map(message_body, old_lower, old_upper, new_lower, new_upper);
+    const int result = map(x, old_lower, old_upper, new_lower, new_upper);
     return (float)constrain(result, min(new_lower, new_upper), max(new_lower, new_upper));
 }
 #define ACTUAL_HEAD_TILT_CENTER 450
@@ -155,7 +164,7 @@ int translate_to_servo_position(unsigned short action, int message_body) {
             result = constrained_map(message_body, 0, 1023, 500, 280);
             break;
         case Message::WINGS:
-            result = constrained_map(message_body, 0, 1023, 500, 1100);
+            result = constrained_map(message_body, 0, 1023, 1100, 500);
             break;
         case Message::HEAD_TILT:
             if (message_body < 512) {
@@ -165,7 +174,7 @@ int translate_to_servo_position(unsigned short action, int message_body) {
             }
             break;
         case Message::BEAK:
-            result = constrained_map(message_body, 0, 1023, 180, 800);
+            result = constrained_map(message_body, 0, 1023, 800, 180);
             break;
         default:
             result = (float)constrain(message_body, 0, 1023);
@@ -208,10 +217,8 @@ void execute() {
     case Message::ENVELOPE:
       // FOR DEBUG (e.g. if you have only one servo...)
       // execute_set_servo(1, message_body);
-
       execute_set_servo(Message::BEAK, message_body);
       execute_set_servo(Message::WINGS, message_body);
-
       execute_set_switch(EYE_PIN, message_body > ENVELOPE_LIGHT_THRESHOLD);
       return;
 
@@ -245,10 +252,7 @@ void execute_set_servo(int message, int payload) {
     return;
   }
   int value = translate_to_servo_position(message, payload);
-  int old_value = surfo[index].read();
-  if (old_value != value) {
-    surfo[index].write(value);
-  }
+  surfo[index].write(value);
 
   #ifdef DEBUG_SERVO
     for (int s = 0; s < N_SERVO - 1; s++) {
@@ -263,7 +267,7 @@ void execute_set_switch(int pin, bool payload) {
   if (pin == NO_PIN) {
       return;
   }
-  digitalWrite(pin, payload);
+  digitalWrite(pin, payload ? HIGH : LOW);
 }
 
 int _radar_history[N_RADAR * RADAR_HISTORY_N] = {0};
