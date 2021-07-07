@@ -218,7 +218,9 @@ void execute() {
       // FOR DEBUG (e.g. if you have only one servo...)
       // execute_set_servo(1, message_body);
       execute_set_servo(Message::BEAK, message_body);
-      execute_set_servo(Message::WINGS, message_body);
+      if (step % 5 == 0) {
+        execute_set_servo(Message::WINGS, message_body);
+      }
       execute_set_switch(EYE_PIN, message_body > ENVELOPE_LIGHT_THRESHOLD);
       return;
 
