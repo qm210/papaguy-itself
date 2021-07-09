@@ -156,6 +156,9 @@ inline float constrained_map(int x, int old_lower, int old_upper, int new_lower,
     return (float)constrain(result, min(new_lower, new_upper), max(new_lower, new_upper));
 }
 #define ACTUAL_HEAD_TILT_CENTER 450
+#define REDUCE_HEAD_TILT 0.3
+#define REDUCED_TILT_LIMIT_LEFT (int)((float)(ACTUAL_HEAD_TILT_CENTER + REDUCE_HEAD_TILT * (850-450)))
+#define REDUCED_TILT_LIMIT_RIGHT (int)((float)(ACTUAL_HEAD_TILT_CENTER + REDUCE_HEAD_TILT * (100-450)))
 // exceeding the Topy limits will probably kill the PapaGuy!!
 int translate_to_servo_position(unsigned short action, int message_body) {
     float result;
@@ -168,9 +171,9 @@ int translate_to_servo_position(unsigned short action, int message_body) {
             break;
         case Message::HEAD_TILT:
             if (message_body < 512) {
-                result = constrained_map(message_body, 0, 511, 850, ACTUAL_HEAD_TILT_CENTER);
+                result = constrained_map(message_body, 0, 511, REDUCED_TILT_LIMIT_LEFT, ACTUAL_HEAD_TILT_CENTER);
             } else {
-                result = constrained_map(message_body, 512, 1023, ACTUAL_HEAD_TILT_CENTER, 100);
+                result = constrained_map(message_body, 512, 1023, ACTUAL_HEAD_TILT_CENTER, REDUCED_TILT_LIMIT_RIGHT);
             }
             break;
         case Message::BEAK:
