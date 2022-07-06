@@ -155,19 +155,31 @@ inline float constrained_map(int x, int old_lower, int old_upper, int new_lower,
     const int result = map(x, old_lower, old_upper, new_lower, new_upper);
     return (float)constrain(result, min(new_lower, new_upper), max(new_lower, new_upper));
 }
-#define ACTUAL_HEAD_TILT_CENTER 450
+
+// left, right from papageis point of view
+#define LIMIT_HEAD_ROTATE_RIGHT 0
+#define LIMIT_HEAD_ROTATE_LEFT 1023
+#define LIMIT_WINGS_SPREADED 450
+#define LIMIT_WINGS_RETRACTED 800
+#define LIMIT_BEAK_OPEN 270
+#define LIMIT_BEAK_CLOSED 1023
+#define LIMIT_BODY_TILT_STRAIGHT 750
+#define LIMIT_BODY_TILT_BENT 500
+#define LIMIT_HEAD_TILT_LEFT 200
+#define LIMIT_HEAD_TILT_RIGHT 1023
+#define ACTUAL_HEAD_TILT_CENTER 512 // was 450
 #define REDUCE_HEAD_TILT 0.3
-#define REDUCED_TILT_LIMIT_LEFT (int)((float)(ACTUAL_HEAD_TILT_CENTER + REDUCE_HEAD_TILT * (850-450)))
-#define REDUCED_TILT_LIMIT_RIGHT (int)((float)(ACTUAL_HEAD_TILT_CENTER + REDUCE_HEAD_TILT * (100-450)))
-// exceeding the Topy limits will probably kill the PapaGuy!!
+#define REDUCED_TILT_LIMIT_LEFT (int)((float)(ACTUAL_HEAD_TILT_CENTER + REDUCE_HEAD_TILT * (LIMIT_HEAD_TILT_LEFT - ACTUAL_HEAD_TILT_CENTER)))
+#define REDUCED_TILT_LIMIT_RIGHT (int)((float)(ACTUAL_HEAD_TILT_CENTER + REDUCE_HEAD_TILT * (LIMIT_HEAD_TILT_RIGHT - ACTUAL_HEAD_TILT_CENTER)))
+// exceeding topy's limits will probably kill the PapaGuy!! qm did it already.
 int translate_to_servo_position(unsigned short action, int message_body) {
     float result;
     switch (action) {
         case Message::BODY_TILT:
-            result = constrained_map(message_body, 0, 1023, 500, 280);
+            result = constrained_map(message_body, 0, 1023, LIMIT_BODY_TILT_STRAIGHT, LIMIT_BODY_TILT_BENT);
             break;
         case Message::WINGS:
-            result = constrained_map(message_body, 0, 1023, 1100, 500);
+            result = constrained_map(message_body, 0, 1023, LIMIT_WINGS_RETRACTED, LIMIT_WINGS_SPREADED);
             break;
         case Message::HEAD_TILT:
             if (message_body < 512) {
@@ -177,8 +189,13 @@ int translate_to_servo_position(unsigned short action, int message_body) {
             }
             break;
         case Message::BEAK:
-            result = constrained_map(message_body, 0, 1023, 800, 180);
+            result = constrained_map(message_body, 0, 1023, LIMIT_BEAK_CLOSED, LIMIT_BEAK_OPEN);
             break;
+        case Message::HEAD_ROTATE:
+            result = constrained_map(message_body, 0, 1023, LIMIT_HEAD_ROTATE_RIGHT, LIMIT_HEAD_ROTATE_LEFT);
+            break;
+
+        // shouldn't exist, but, well.
         default:
             result = (float)constrain(message_body, 0, 1023);
     }
